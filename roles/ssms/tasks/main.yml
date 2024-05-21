@@ -1,5 +1,5 @@
 ---
-# tasks file for rh-console-imagebuilder
+# tasks file for ssms
 
 - name: Install Package
   tags: ssms
