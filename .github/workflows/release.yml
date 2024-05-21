@@ -31,7 +31,7 @@ jobs:
       collection_namespace: brianaddicks
       collection_name: mssql_tools
       collection_version: ${{ github.ref_name }}
-      collection_repo: https://github.com/mssql_tools/rh_console_imagebuilder/
+      collection_repo: https://github.com/brianaddicks/mssql_tools/
       quay_username: rh_ee_baddicks
     secrets:
 
