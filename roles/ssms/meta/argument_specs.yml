@@ -1,0 +1,12 @@
+---
+argument_specs:
+  main:
+    short_description: Ansible role to utilize Red Hat Image Builder from console.redhat.com.
+    options:
+      ssms_version:
+        description: Desired architecture for your image
+        type: str
+        required: false
+        default: latest
+        choices:
+          - latest

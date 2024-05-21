@@ -1,0 +1,7 @@
+---
+# tasks file for rh-console-imagebuilder
+
+- name: Install Package
+  ansible.windows.win_package:
+    path: '{{ ssms_installation_source }}'
+    arguments: /install /passive /norestart

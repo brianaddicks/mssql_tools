@@ -1,0 +1,23 @@
+---
+namespace: brianaddicks
+name: mssql_tools
+version: 1.0.0
+description: Several roles for MSSQL configuration and maintenance
+readme: README.md
+authors:
+  - Brian Addicks @brianaddicks
+
+repository: https://github.com/brianaddicks/mssql_tools
+issues: https://github.com/brianaddicks/mssql_tools/issues
+build_ignore:
+  - galaxy.yml.j2
+  - release.yml
+  - .github
+  - .ansiblelint.yml
+  - .yamllint.yml
+  - '*.tar.gz'
+license:
+  - GPL-3.0-or-later
+tags:
+  - mssql
+  - collection
