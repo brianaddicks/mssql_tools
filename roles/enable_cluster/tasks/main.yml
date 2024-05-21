@@ -310,7 +310,7 @@
       # become: true
       when: mssql_primary_replica is not defined or
         mssql_primary_replica is false
-      ansible.builtin.win_shell: |
+      ansible.windows.win_shell: |
         {{ lookup('ansible.builtin.file', 'mssql_restoredb.ps1') }}
         Restore-MssqlDatabase {{ inventory_hostname_short }} {{ mssql_instance_name }} {{ mssql_database_names | join(',') }} {{ mssql_restore_path }}
       failed_when: result.stderr | length > 0
