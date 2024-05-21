@@ -27,7 +27,8 @@ Simple role to install SSMS. Currently just grabs the latest version, might add 
 
 Configure SQL Always on Cluster. Currently only support file share quorum. Can be broken up into the follow stages with tags.
 
-^ tag ^ description ^
+| tag | description |
+| --- | ----------- |
 | win_firewall | Configures windows firewall to allow traffic between nodes |
 | create_quorum_share | Creates directory/share for quorum witness |
 | failover_cluster | configured Windows Failover Clustering |
@@ -36,7 +37,8 @@ Configure SQL Always on Cluster. Currently only support file share quorum. Can b
 
 ### Roles Variables
 
-^ Variable ^ Default ^ Value or Expression ^
+| Variable | Default | Value or Expression |
+| -------- | ------- | ------------------- |
 | mssql_agentsvc_account_pass | ❌ | REQUIRED |
 | mssql_agentsvc_account | ❌ | REQUIRED |
 | mssql_assvc_account_pass | ❌ | REQUIRED |
