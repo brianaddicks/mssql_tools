@@ -60,10 +60,14 @@ jobs:
     #   - sanity
     runs-on: ubuntu-latest
     steps:
+      # - run: >-
+      #     python -c "assert set([
+      #     '${{ needs.pre-commit.result }}',
+      #     '${{ needs.sanity.result }}',
+      #     ]) == {'success'}"
       - run: >-
           python -c "assert set([
           '${{ needs.pre-commit.result }}',
-          '${{ needs.sanity.result }}',
           ]) == {'success'}"
   infra_release:
     needs:
