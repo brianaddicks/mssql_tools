@@ -1,0 +1,9 @@
+---
+argument_specs:
+  main:
+    short_description: Ansible role to enable MSSQL Clustering.
+    options:
+      mssql_base_ldap_path:
+        description: LDAP Path for service account
+        type: str
+        required: true

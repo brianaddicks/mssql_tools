@@ -1,0 +1,317 @@
+---
+# tasks file for enable_cluster
+
+######### START: FIREWALL SETUP #########
+
+- name: Get facts for firewall rules
+  tags: win_firewall
+  ansible.windows.setup:
+
+- name: Get other node IPs
+  tags: win_firewall
+  ansible.builtin.set_fact:
+    other_node_ips: "{{ hostvars[item].ansible_ip_addresses | ansible.utils.ipv4 | ansible.builtin.difference(hostvars[item].ansible_ip_addresses | ansible.utils.ipaddr('169.254.0.0/16')) | ansible.builtin.difference(mssql_failover_cluster_ip) }}"
+  loop: '{{ play_hosts | ansible.builtin.difference(inventory_hostname) }}'
+
+- name: Allow communication between all nodes through Windows firewall
+  tags: win_firewall
+  community.windows.win_firewall_rule:
+    name: SQL Cluster Communications
+    remoteip: '{{ item }}'
+    action: allow
+    direction: in
+    state: present
+    enabled: true
+  loop: '{{ other_node_ips }}'
+######### END: FIREWALL SETUP #########
+######### START: QUORUM #########
+
+- name: Create file witness directory
+  tags: create_quorum_share
+  run_once: true
+  delegate_to: '{{ mssql_file_quorum_hostname }}'
+  ansible.windows.win_file:
+    path: '{{ mssql_file_quorum_path }}'
+    state: directory
+
+- name: Create file witness share
+  tags: create_quorum_share
+  run_once: true
+  delegate_to: '{{ mssql_file_quorum_hostname }}'
+  ansible.windows.win_share:
+    name: '{{ mssql_file_quorum_share_name }}'
+    path: '{{ mssql_file_quorum_path }}'
+    list: false
+    full: "{{ mssql_netbios }}\\{{ mssql_cluster_name }}$,{{ mssql_netbios }}\\Domain Admins"
+######### END: QUORUM #########
+######### START: FAILOVER CLUSTERING #########
+
+- name: Enable Failover-Clustering feature
+  tags:
+    - failover_cluster
+  ansible.windows.win_feature:
+    name:
+      - Failover-Clustering
+      - RSAT-Clustering-PowerShell
+      - RSAT-Clustering-CmdInterface
+      - RSAT-Clustering-Mgmt
+    state: present
+  register: win_feature
+
+- name: Reboot if installed features require it
+  tags: failover_cluster
+  when: win_feature.reboot_required
+  ansible.windows.win_reboot:
+
+- name: Wait for host to respond (600s)
+  tags: failover_cluster
+  when: win_feature.reboot_required
+  ansible.builtin.wait_for_connection:
+
+- name: Install FailoverClusterDsc PsModule
+  tags: failover_cluster
+  community.windows.win_psmodule:
+    name: FailoverClusterDsc
+    state: latest
+
+- name: Create failover cluster on first host
+  tags: failover_cluster
+  when: mssql_primary_replica is defined and
+    mssql_primary_replica is true
+  become: true
+  become_user: SYSTEM
+  any_errors_fatal: true
+  ansible.windows.win_dsc:
+    resource_name: Cluster
+    name: '{{ mssql_cluster_name }}'
+    staticipaddress: '{{ mssql_failover_cluster_ip }}'
+    DomainAdministratorCredential_username: '{{ ansible_psrp_user }}'
+    DomainAdministratorCredential_password: '{{ ansible_winrm_password }}'
+  register: failover_primary_complete
+
+- name: Add file share witness to cluster
+  tags: failover_cluster
+  when: mssql_primary_replica is defined and
+    mssql_primary_replica is true
+  become: true
+  become_user: SYSTEM
+  any_errors_fatal: true
+  ansible.windows.win_dsc:
+    resource_name: ClusterQuorum
+    IsSingleInstance: 'Yes'
+    Type: 'NodeAndFileShareMajority'
+    Resource: "\\\\{{ mssql_file_quorum_hostname }}\\{{ mssql_file_quorum_share_name }}"
+
+- name: Wait for cluster
+  tags: failover_cluster
+  when: mssql_primary_replica is not defined or
+    mssql_primary_replica is false
+  ansible.windows.win_dsc:
+    resource_name: WaitForCluster
+    name: '{{ mssql_cluster_name }}'
+    RetryIntervalSec: 10
+    RetryCount: 60
+
+- name: Join secondary nodes to cluster
+  tags:
+    - failover_cluster
+  when: mssql_primary_replica is not defined or
+    mssql_primary_replica is false
+  ansible.windows.win_dsc:
+    resource_name: Cluster
+    name: '{{ mssql_cluster_name }}'
+    staticipaddress: '{{ mssql_failover_cluster_ip }}'
+    DomainAdministratorCredential_username: '{{ ansible_psrp_user }}'
+    DomainAdministratorCredential_password: '{{ ansible_winrm_password }}'
+######### END: FAILOVER CLUSTERING #########
+######### START: SQL ALWAYS ON #########
+
+- name: Install SqlServer PsModule
+  tags: sql_always_on
+  community.windows.win_psmodule:
+    name: SqlServer
+    state: present
+    allow_clobber: true
+
+- name: Install SqlServerDsc PsModule
+  tags: sql_always_on
+  community.windows.win_psmodule:
+    name: SqlServerDsc
+    state: latest
+
+- name: Adding the required service account to allow the cluster to log into SQL
+  tags: sql_always_on
+  ansible.windows.win_dsc:
+    resource_name: SqlLogin
+    instancename: '{{ mssql_instance_name }}'
+    logintype: WindowsUser
+    name: "NT SERVICE\\ClusSvc"
+    ensure: present
+
+- name: Add the required permissions to the cluster service login
+  tags: sql_always_on
+  ansible.windows.win_dsc:
+    resource_name: SqlPermission
+    instancename: '{{ mssql_instance_name }}'
+    name: "NT SERVICE\\ClusSvc"
+    permissiontoinclude:
+      - State: Grant
+        Permission:
+          - ConnectSql
+          - AlterAnyAvailabilityGroup
+          - ViewServerState
+    # - State: GrantWithGrant
+    #   Permission: null
+    # - State: Deny
+    #   Permission: null
+
+- name: Create a DatabaseMirroring endpoint
+  tags: sql_always_on
+  ansible.windows.win_dsc:
+    resource_name: SqlEndpoint
+    instancename: '{{ mssql_instance_name }}'
+    servername: '{{ inventory_hostname }}'
+    endpointname: HADR
+    endpointtype: DatabaseMirroring
+    ensure: present
+
+- name: Ensure the HADR option is enabled for the instance
+  tags: sql_always_on
+  ansible.windows.win_dsc:
+    resource_name: SqlAlwaysOnService
+    instancename: '{{ mssql_instance_name }}'
+    ensure: present
+
+- name: Create AG and AG Listener on primary replica
+  tags:
+    - sql_always_on
+    - wait_for_ag
+  any_errors_fatal: true
+  when: mssql_primary_replica is defined and
+    mssql_primary_replica is true
+  block:
+    - name: Create the availability group on the instance tagged as the primary replica
+      ansible.windows.win_dsc:
+        resource_name: SqlAG
+        instancename: '{{ mssql_instance_name }}'
+        name: '{{ mssql_ag_name }}'
+        servername: '{{ inventory_hostname_short }}'
+        FailoverMode: 'Automatic'
+        AvailabilityMode: SynchronousCommit
+        SeedingMode: Automatic
+        ensure: present
+
+    # - name: Create the availability group listener
+    #   ansible.windows.win_dsc:
+    #     resource_name: SqlAGListener
+    #     instancename: "{{ mssql_instance_name }}"
+    #     name: "{{ mssql_ag_name }}"
+    #     AvailabilityGroup: "{{ mssql_ag_name }}"
+    #     servername: "{{ inventory_hostname }}"
+    #     IpAddress: "{{ mssql_listener_ip }}"
+    #     Port: "{{ mssql_listener_port }}"
+    #     ensure: present
+
+    - name: Wait for AG to be ready
+      # become: true
+      ansible.windows.win_dsc:
+        resource_name: SqlWaitForAG
+        name: '{{ mssql_ag_name }}'
+        RetryIntervalSec: 5
+        RetryCount: 1
+        instancename: '{{ mssql_instance_name }}'
+
+- name: Add secondary nodes as replicas to availability group
+  tags:
+    - sql_always_on
+  when: mssql_primary_replica is not defined or
+    mssql_primary_replica is false
+  block:
+    - name: Add secondary nodes as replicas to availability group
+      become: true
+      become_user: SYSTEM
+      ansible.windows.win_dsc:
+        resource_name: SqlAGReplica
+        name: '{{ inventory_hostname_short }}'
+        availabilitygroupname: '{{ mssql_ag_name }}'
+        servername: '{{ inventory_hostname_short }}'
+        instancename: '{{ mssql_instance_name }}'
+        primaryreplicaservername: '{{ ansible_play_hosts_all[0] }}'
+        primaryreplicainstancename: '{{ mssql_instance_name }}'
+        PsDscRunAsCredential_username: '{{ ansible_psrp_user }}'
+        PsDscRunAsCredential_password: '{{ ansible_winrm_password }}'
+        FailoverMode: 'Automatic'
+        AvailabilityMode: SynchronousCommit
+        SeedingMode: Automatic
+        ensure: present
+######### END: SQL ALWAYS ON #########
+######### START: ADD DATABASES #########
+
+- name: Create and backup database on primary replica
+  tags: add_databases
+  any_errors_fatal: true
+  when: mssql_primary_replica is defined and
+    mssql_primary_replica is true
+  block:
+    - name: Create databases on primary node
+      ansible.windows.win_dsc:
+        resource_name: SqlDatabase
+        InstanceName: '{{ mssql_instance_name }}'
+        ServerName: '{{ inventory_hostname_short }}'
+        Name: '{{ item }}'
+        Ensure: 'Present'
+      loop: '{{ mssql_database_names }}'
+
+    - name: Create backup folders
+      ansible.windows.win_file:
+        path: '{{ item }}'
+        state: directory
+      loop:
+        - "{{ mssql_backup_path }}\\full"
+        - "{{ mssql_backup_path }}\\log"
+
+    - name: Add backup share
+      ansible.windows.win_share:
+        name: '{{ mssql_share_name }}'
+        path: '{{ mssql_backup_path }}'
+        list: false
+        read: '{{ mssql_sqlsvc_account }}'
+        full: "{{ mssql_netbios }}\\Domain Admins"
+
+    - name: Backup databases
+      register: result
+      ansible.builtin.win_shell: |
+        {{ lookup('ansible.builtin.file', 'mssql_backupdb.ps1') }}
+        Backup-MssqlDatabase {{ inventory_hostname_short }} {{ mssql_instance_name }} {{ mssql_database_names | join(',') }} {{ mssql_backup_path }} -Verbose
+      failed_when: result.stderr | length > 0
+
+    # - name: Create clustered databases
+    #   ansible.windows.win_dsc:
+    #     resource_name: SqlAGDatabase
+    #     AvailabilityGroupName: "{{ mssql_ag_name }}"
+    #     BackupPath: '{{ mssql_restore_path }}'
+    #     DatabaseName: "{{ item }}"
+    #     InstanceName: "{{ mssql_instance_name }}"
+    #     ServerName: "{{ inventory_hostname_short }}"
+    #     Ensure: 'Present'
+    #     ProcessOnlyOnActiveNode: true
+    #     PsDscRunAsCredential_username: "{{ ansible_psrp_user }}"
+    #     PsDscRunAsCredential_password: "{{ ansible_winrm_password }}"
+    #   loop: "{{ mssql_database_names }}"
+
+- name: Restore databases to secondary nodes and add to availability group
+  tags: add_databases
+  any_errors_fatal: true
+  when: mssql_primary_replica is not defined or
+    mssql_primary_replica is false
+  block:
+    - name: Restore database to secondary nodes
+      register: result
+      # become: true
+      when: mssql_primary_replica is not defined or
+        mssql_primary_replica is false
+      ansible.builtin.win_shell: |
+        {{ lookup('ansible.builtin.file', 'mssql_restoredb.ps1') }}
+        Restore-MssqlDatabase {{ inventory_hostname_short }} {{ mssql_instance_name }} {{ mssql_database_names | join(',') }} {{ mssql_restore_path }}
+      failed_when: result.stderr | length > 0
+######### START: ADD DATABASES #########

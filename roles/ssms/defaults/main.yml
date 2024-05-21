@@ -1,6 +1,6 @@
 ---
 # defaults file for ssms
-ssms_version: '2022'
+ssms_version: 'latest'
 ssms_version_media:
   'latest': https://aka.ms/ssmsfullsetup
 ssms_installation_source: '{{ ssms_version_media[ssms_version] }}'

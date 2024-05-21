@@ -1,0 +1,14 @@
+---
+- name: Install SQL Server on Window host
+  hosts: mssqlservers
+  gather_facts: false
+
+  tasks:
+    - name: Install SSMS
+      ansible.builtin.include_role:
+        name: ssms
+
+    - name: Enable Cluster
+      tags: enable_cluster
+      ansible.builtin.include_role:
+        name: enable_cluster

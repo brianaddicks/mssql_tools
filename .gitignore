@@ -7,3 +7,5 @@ test
 tests/output
 local-test.yml
 ansible-navigator.log
+inventory.yml
+test.sh
