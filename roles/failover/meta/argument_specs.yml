@@ -1,0 +1,9 @@
+---
+argument_specs:
+  main:
+    short_description: Ansible role to trigger Failover for MSSQL Cluster.
+    options:
+      failover_new_primary_replica:
+        description: Desired new primary replica server
+        type: str
+        required: false

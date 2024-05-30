@@ -201,19 +201,7 @@
         SeedingMode: Automatic
         ensure: present
 
-    # - name: Create the availability group listener
-    #   ansible.windows.win_dsc:
-    #     resource_name: SqlAGListener
-    #     instancename: "{{ mssql_instance_name }}"
-    #     name: "{{ mssql_ag_name }}"
-    #     AvailabilityGroup: "{{ mssql_ag_name }}"
-    #     servername: "{{ inventory_hostname }}"
-    #     IpAddress: "{{ mssql_listener_ip }}"
-    #     Port: "{{ mssql_listener_port }}"
-    #     ensure: present
-
     - name: Wait for AG to be ready
-      # become: true
       ansible.windows.win_dsc:
         resource_name: SqlWaitForAG
         name: '{{ mssql_ag_name }}'
@@ -280,24 +268,10 @@
 
     - name: Backup databases
       register: result
-      ansible.builtin.win_shell: |
+      ansible.windows.win_shell: |
         {{ lookup('ansible.builtin.file', 'mssql_backupdb.ps1') }}
         Backup-MssqlDatabase {{ inventory_hostname_short }} {{ mssql_instance_name }} {{ mssql_database_names | join(',') }} {{ mssql_backup_path }} -Verbose
       failed_when: result.stderr | length > 0
-
-    # - name: Create clustered databases
-    #   ansible.windows.win_dsc:
-    #     resource_name: SqlAGDatabase
-    #     AvailabilityGroupName: "{{ mssql_ag_name }}"
-    #     BackupPath: '{{ mssql_restore_path }}'
-    #     DatabaseName: "{{ item }}"
-    #     InstanceName: "{{ mssql_instance_name }}"
-    #     ServerName: "{{ inventory_hostname_short }}"
-    #     Ensure: 'Present'
-    #     ProcessOnlyOnActiveNode: true
-    #     PsDscRunAsCredential_username: "{{ ansible_psrp_user }}"
-    #     PsDscRunAsCredential_password: "{{ ansible_winrm_password }}"
-    #   loop: "{{ mssql_database_names }}"
 
 - name: Restore databases to secondary nodes and add to availability group
   tags: add_databases

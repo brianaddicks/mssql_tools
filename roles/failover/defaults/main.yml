@@ -1,0 +1,3 @@
+---
+# defaults file for failover
+failover_require_healthcheck: true

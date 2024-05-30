@@ -1,0 +1,37 @@
+---
+# tasks file for failover
+
+- name: Install SqlServer PsModule
+  # tags: node_health
+  community.windows.win_psmodule:
+    name: SqlServer
+    state: present
+    allow_clobber: true
+
+- name: Get cluster node health
+  tags: node_health
+  become: true
+  become_user: '{{ ansible_user }}'
+  register: node_health_info
+  ansible.windows.win_shell: |
+    {{ lookup('ansible.builtin.file', 'Get-MssqlNodeHealth.ps1') }}
+    Get-MssqlNodeHealth -Verbose | ConvertTo-Json
+  failed_when: node_health_info.stderr | length > 0
+
+- name: Show node health
+  ansible.builtin.debug:
+    var: item
+  loop: '{{ node_health_info.stdout | from_json | community.general.json_query(json_query) }}'
+  vars:
+    json_query: "[?ServerName=='{{ inventory_hostname_short }}']"
+  failed_when: (item.AvailabilityMode != node_health_desired_availability_mode) or (item.DatabaseSyncStatus != node_health_desired_db_sync_status) or (item.FailoverMode != node_health_desired_failover_mode) or (item.ReplicaRole != node_health_desired_replica_role) or (item.ReplicaSyncStatus != node_health_desired_replica_sync_status)
+  retries: 5
+  delay:
+    10
+
+    # pwsh_latest_download_url: "{{ pwsh_latest_uri | community.general.json_query(json_query) | first }}"
+    # vars:
+    #   json_query: "json.assets[?name=='{{ pwsh_latest_asset_name }}'].browser_download_url"
+#     failed_when:
+# - result.rc == 0
+# - '"No such" not in result.stdout'

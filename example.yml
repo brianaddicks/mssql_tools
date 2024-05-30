@@ -12,3 +12,23 @@
       tags: enable_cluster
       ansible.builtin.include_role:
         name: enable_cluster
+
+    - name: Failover to secondary
+      tags:
+        - failover
+        # - node_health
+      when: mssql_primary_replica is defined and
+            mssql_primary_replica is true
+      # when: mssql_primary_replica is not defined or
+      #       mssql_primary_replica is false
+      ansible.builtin.include_role:
+        name: failover
+      vars:
+        failover_current_primary_replica: test-mssql2.addicks.us
+
+    - name: Get cluster node health
+      tags: node_health
+      ansible.builtin.include_role:
+        name: node_health
+      when: mssql_primary_replica is defined and
+            mssql_primary_replica is true

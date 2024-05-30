@@ -1,0 +1,7 @@
+---
+# defaults file for node_health
+node_health_desired_availability_mode: SYNCHRONOUS_COMMIT
+node_health_desired_db_sync_status: SYNCHRONIZED
+node_health_desired_failover_mode: AUTOMATIC
+node_health_desired_replica_role: PrimaryReplica
+node_health_desired_replica_sync_status: HEALTHY
