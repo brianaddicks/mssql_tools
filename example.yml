@@ -4,31 +4,58 @@
   gather_facts: false
 
   tasks:
-    - name: Install SSMS
-      ansible.builtin.include_role:
-        name: ssms
+    # - name: Install SSMS
+    #   ansible.builtin.include_role:
+    #     name: ssms
 
-    - name: Enable Cluster
-      tags: enable_cluster
-      ansible.builtin.include_role:
-        name: enable_cluster
+    # - name: Enable Cluster
+    #   tags: enable_cluster
+    #   ansible.builtin.include_role:
+    #     name: enable_cluster
+
+    - name: Get Cluster node health and primary replica
+      tags: node_health
+      # when: mssql_primary_replica is defined and
+      #         mssql_primary_replica is true
+      when: mssql_primary_replica is not defined or
+            mssql_primary_replica is false
+      block:
+        - name: Get cluster node health
+          ansible.builtin.include_role:
+            name: node_health
+
+        - name: Set fact for primary replica on all nodes
+          ansible.builtin.set_fact:
+            node_health_current_primary_replica: "{{ node_health_current_primary_replica }}"
+          delegate_to: "{{ item }}"
+          delegate_facts: true
+          loop: "{{ play_hosts }}"
+
+        - name: Get the Current Primary Replica
+          ansible.builtin.debug:
+            var: node_health_current_primary_replica
 
     - name: Failover to secondary
       tags:
         - failover
-        # - node_health
-      when: mssql_primary_replica is defined and
-            mssql_primary_replica is true
-      # when: mssql_primary_replica is not defined or
-      #       mssql_primary_replica is false
+        - node_health
+      when: inventory_hostname_short != node_health_current_primary_replica
+      ansible.builtin.include_role:
+        name: failover
+      vars:
+        failover_current_primary_replica: "{{ node_health_current_primary_replica }}.{{ mssql_domain_controller }}"
+
+    # Perform maintenance
+    - name: Prompt
+      ansible.builtin.pause:
+        prompt: Do you want to continue?
+
+    - name: Failback to primary
+      tags:
+        - failover
+        - node_health
+      when: inventory_hostname_short is match(node_health_current_primary_replica)
       ansible.builtin.include_role:
         name: failover
       vars:
         failover_current_primary_replica: test-mssql2.addicks.us
-
-    - name: Get cluster node health
-      tags: node_health
-      ansible.builtin.include_role:
-        name: node_health
-      when: mssql_primary_replica is defined and
-            mssql_primary_replica is true
